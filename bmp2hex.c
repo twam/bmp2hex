@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2007 by Tobias Müller                                   *
+ *   Copyright (C) 2011 by Tobias Müller                                   *
  *   Tobias_Mueller@twam.info                                              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -23,9 +23,133 @@
 #include <string.h>
 #include <ctype.h>
 
-void print_binary(char b) {
+enum format_t { hex, xbm  };
+
+struct bitmap_t {
+	unsigned int width;
+	unsigned int height;
+	unsigned int rowwidth;
+	unsigned char depth;
+	unsigned char *data;	
+};
+
+int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
+	int ret = 0;
+	FILE *fd;
+	char* buffer;
+	char header[54];
+	unsigned short offset;
+	unsigned char bottomup;
+	unsigned int align;
+
+	// open file
+	if ((fd = fopen(filename, "r")) == NULL) {
+		fprintf(stderr, "Error while opening file '%s'.\n", filename);
+		ret = -1;
+		goto read_bitmap_ret;
+	}
+
+	// read header
+	if (fgets(header, 54, fd) == NULL) {
+		fprintf(stderr, "File '%s' is not a valid Windows Bitmap! (Header too short)\n", filename);
+		ret = -2;
+		goto read_bitmap_fclose;
+	}
+
+	// check signature
+	if ((header[0] != 0x42) || (header[1] != 0x4D)) {
+		fprintf(stderr, "File '%s' is not a valid Windows Bitmap! (Wrong signature: 0x%X%X)\n", filename, header[0], header[1]);
+		ret = -3;
+		goto read_bitmap_fclose;
+	}
+	
+	// offset where image data start
+	offset = (header[11] << 8) | header[10];
+
+	// read width from header, should be positiv
+	bitmap->width = abs((header[21]<<8) | (header[20]<<16) | (header[19]<<8) | header[18]);
+
+	// read height from header
+	bitmap->height = abs((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]);
+
+	// Is this a bottum up picture?
+	bottomup = ((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]) >= 0;
+
+	// color depth of image, should be 1 for monochromes
+	bitmap->depth = (header[28]);
+
+	// width of a byte row
+	if (bitmap->width % 8) {
+		bitmap->rowwidth = (bitmap->width/8)+1;
+	} else {
+		bitmap->rowwidth = (bitmap->width/8) * bitmap->depth;
+	}
+
+	// 4-byte alignment width of a byte row, align >= bitmap->rowwidth 
+	if (bitmap->rowwidth % 4) {
+		align = ((bitmap->rowwidth / 4)+1)*4;
+	} else {
+		align = bitmap->rowwidth;
+	}
+
+	fprintf(stdout, "File '%s' is a %ix%ix%i bitmap\n", filename, bitmap->width, bitmap->height, bitmap->depth);
+
+	if (bitmap->depth != 1) {
+		fprintf(stderr, "File '%s' is not an 1-bit Bitmap!\n", filename);
+		ret = -4;
+		goto read_bitmap_fclose;
+	}
+
+	// jump to offset
+	fseek(fd, offset, SEEK_SET);
+
+	if ((bitmap->data = (unsigned char*)malloc(align*bitmap->height)) == NULL) {
+		fprintf(stderr, "Could not aquire memory for image data (%u bytes)!\n", align*bitmap->height);
+		ret = -5;
+		goto read_bitmap_fclose;
+	}
+
+	if ((buffer = (char*)malloc(align)) == NULL) {
+		fprintf(stderr, "Could not aquire memory for read buffer (%u bytes)!\n", align);
+		ret = -6;
+		free(bitmap->data);
+		goto read_bitmap_fclose;
+	}
+
+	for (unsigned int row=0; row<bitmap->height; ++row) {
+		fseek(fd, offset+row*align, SEEK_SET);
+
+/**		if (fgets(buffer, align+1, fd) == NULL) {
+			printf("Input file ended before all pixels could be read!\n");
+			return 7;
+		}
+**/
+
+		// get char by char
+		for (unsigned int col =0; col <= align; ++col) {
+			buffer[col] = fgetc(fd);
+		}
+
+		if (bottomup) {
+			memcpy(bitmap->data+(((bitmap->height-1)-row)*bitmap->rowwidth), buffer, bitmap->rowwidth);
+		} else {
+			memcpy(bitmap->data+(row*abs(bitmap->width/8)), buffer, bitmap->rowwidth);
+		}
+
+	}
+
+	free(buffer);
+
+read_bitmap_fclose:
+	fclose(fd);
+
+read_bitmap_ret:
+	return ret;	
+}
+
+void print_binary(char b, unsigned char length) {
 	int i;
-	for (i=7;i>=0;i--) {
+	for (i=7; i>=8-length; i--) {
 		if (b & (1<<i)) {
 			printf("X");
 		} else {
@@ -34,182 +158,90 @@ void print_binary(char b) {
 	}
 }
 
-int main(int argc, char* argv[]) 
-{
-	FILE *input;
-	FILE *output;
-	unsigned char header[54];
-	unsigned int width;
-	unsigned int height;
-	unsigned int rowwidth;
-	unsigned char bottomup;
-	unsigned short offset;
-	char *buf;
-	char *img;
-	char *tmp;
-	unsigned char depth;
-	unsigned int row,col;
-	unsigned int align;
-	unsigned int i;
+void print_bitmap(bitmap_t* bitmap) {
+	for (unsigned row=0; row<bitmap->height; ++row) {
+		printf("%3i ",row);
+		for (unsigned int col = 0; col<bitmap->rowwidth; ++col) {
+			print_binary(bitmap->data[row*bitmap->rowwidth+col], col == bitmap->rowwidth -1 ? bitmap->width % 8 : 8);
+		}
+		printf("\n");	
+	}
+}
+
+int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap) {
+	int ret = 0;
+	FILE *fd;
+
+	// open file
+	if ((fd = fopen(filename, "w")) == NULL) {
+		fprintf(stderr, "Error while opening file '%s'.\n", filename);
+		ret = -1;
+		goto write_bitmap_xbm_ret;
+	}
+
+	fprintf(fd,"#define %s_width %u\n", filename, bitmap->width);
+	fprintf(fd,"#define %s_height %u\n", filename, bitmap->height);
+	fprintf(fd,"static char %s_bits[] = {\n", filename);
+
+	for (unsigned int line = 0; line <= (bitmap->height*bitmap->rowwidth)/12; ++line) {
+		fprintf(fd,"  ");
+
+		unsigned int max_pos = (line < (bitmap->height*bitmap->rowwidth)/12) ? 12 : (bitmap->height*bitmap->rowwidth) % 12;
+
+		for (unsigned int pos = 0; pos < max_pos; ++pos) {
+			unsigned char data = 0;
+
+			// change LSB<->MSB
+			for (unsigned int bit = 0; bit < 8; ++bit) {
+				if (bitmap->data[line*12+pos] & (1 << bit)) {
+					data |= (1 << (7-bit));
+				}
+			}
+	
+			fprintf(fd, "0x%02X, ", data);
+		}
+
+		if (line == (bitmap->height*bitmap->rowwidth)/12) {
+			fprintf(fd,"};");
+		}
+
+		fprintf(fd,"\n");
+	}
+
+write_bitmap_xbm_fclose:
+	fclose(fd);
+
+write_bitmap_xbm_ret:
+	return ret;
+}
+
+int main(int argc, char* argv[]) {
+	format_t format = xbm;
+	bitmap_t bitmap;
 
 	if (argc != 4) {
 		printf("You need to call: %s <inputfile> <outputfile> <imagename> \n",argv[0]);
-		printf("  e.g. %s input.bmp image.h image",argv[0]);
+		printf("  e.g. %s input.bmp image.h image\n",argv[0]);
 		return 1;
 	}
 
-	if ((input = fopen(argv[1],"r")) == NULL) {
-		printf("Error while opening inputfile %s\n",argv[1]);
-		return 2;
+	// read bitmap
+	if (read_bitmap_from_file(argv[1], &bitmap)<0) {
+		fprintf(stderr, "Error while opening file '%s'!\n", argv[1]); 
+		exit(EXIT_FAILURE);
 	}
 
-	if ((output = fopen(argv[2],"w")) == NULL) {
-		printf("Error while opening outputfile %s\n",argv[2]);
-		return 2;
-	}
-	
-	if (fgets((char *)header,54,input) == NULL) {
-		printf("Inputfile is not an valid Windows-Bitmap! (Header too short)\n");
-		return 3;
-	}
+	// print bitmap
+	print_bitmap(&bitmap);
 
-	if ((header[0]!=0x42) || (header[1]!=0x4D)) {
-		printf("Input file is not an Windows-Bitmap! (Wrong signature: 0x%x%x)\n",header[0],header[1]);
-		return 4;
+	switch (format) {
+		case xbm:
+			write_bitmap_as_xbm(argv[2], &bitmap);
+			break;
 	}
 
-	// offset where image data starts
-	offset = (header[11]<<8) | header[10];	
+	// clean up bitmap
+	free(bitmap.data);
 
-	// read width from header, should be positiv
-	width = abs((header[21]<<8) | (header[20]<<16) | (header[19]<<8) | header[18]);
-
-	// read height from header
-	height = abs((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]);
-
-	// Is this a bottum up picture?
-	bottomup = ((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]) >= 0;
-
-	// color depth of image, should be 1 for monochromes
-	depth = (header[28]);
-
-	// width of a byte row
-	if (width % 8) {
-		rowwidth = (width/8)+1;
-	} else {
-		rowwidth = (width/8) * depth;
-	}
-
-	// 4-byte alignment width of a byte row, align >= rowwidth 
-	if (rowwidth % 4) {
-		align = ((rowwidth / 4)+1)*4;
-	} else {
-		align = rowwidth;
-	}
-
-	if (depth != 1) {
-		printf("Input file must be an 1-bit Bitmap!\n");
-		return 5;
-	}
-
-	printf("%s is a %ix%ix%i bitmap\n",argv[1],width,height,depth);
-
-	fseek(input, offset, SEEK_SET);
-
-	if ((img = (char *)malloc(align*height)) == NULL) {
-		printf("Could not aquire memory!\n");
-		return 6;
-	}
-
-	if ((buf = (char *)malloc(align)) == NULL) {
-		printf("Could not aquire memory!\n");
-		return 6;
-	}
-	
-	for (row=0;row<height;row++) {
-		fseek(input, offset+row*align, SEEK_SET);
-
-/*		if (fgets(buf,align+1,input) == NULL) {
-			printf("Input file ended before all pixels could be read!\n");
-			return 7;
-		}
-*/
-
-		for (col =0; col <= align;col++) {
-			buf[col] = fgetc(input);
-		}
-
-		if (bottomup) {
-			memcpy(img+(((height-1)-row)*rowwidth),buf,rowwidth);
-		} else {
-			memcpy(img+(row*abs(width/8)),buf,rowwidth);
-		}
-
-	}
-
-	free(buf);
-/*
-	int a;
-	printf("    ");
-	for (a=0;a<abs(width/8);a++) {
-		printf("%2i ",a);
-	}
-	printf("\n");
-
-	for (row=0;row<height;row++) {
-		printf("%3i ",row);
-		for (col = 0;col<rowwidth;col++) {
-			printf("%2X ",(unsigned char)img[row*rowwidth+col]);
-		}
-		printf("\n");
-	}
-*/
-	printf("\n");
-
-	for (row=0;row<height;row++) {
-		printf("%3i ",row);
-		for (col = 0;col<rowwidth;col++) {
-			print_binary(img[row*rowwidth+col]);
-		}
-		printf("\n");	
-	} 
-
-	tmp = (char*)malloc(strlen(argv[3])+2);
-
-	for (i=0;i<strlen(argv[3]);i++) {
-		tmp[i]=toupper(argv[3][i]);
-	}	
-	tmp[i]='_';
-	tmp[i+1]='H';
-
-	buf = (char*)malloc(255);
-	sprintf(buf,"#ifndef %s\n#define %s\n\n",tmp,tmp);
-	fputs(buf,output);
-	sprintf(buf,"uint8_t %s[%i] PROGMEM = {\n",argv[3],rowwidth*height);
-	fputs(buf,output);
-	for (row=0;row<height;row++) {
-		fputs("\t",output);
-		for (col=0;col<rowwidth;col++) {
-			sprintf(buf,"0x%02X", (unsigned char)img[row*rowwidth+col]);
-			fputs(buf,output);
-			if (((row+1)<height) || ((col+1)<rowwidth)){
-				fputs(", ",output);
-			}
-		}
-		if ((row+1)<height) {
-			fputs("\n",output);
-		}
-	}
-	fputs("\n};\n",output);
-	sprintf(buf,"prog_uint16_t %swidth = 0x%04X;\n",argv[3],width);
-	fputs(buf,output);
-	sprintf(buf,"prog_uint16_t %sheight = 0x%04X;\n",argv[3],height);
-	fputs(buf,output);
-	fputs("#endif\n",output);
-	free(buf);
-	free(img);
-	fclose(input);
-	fclose(output);
-	
 	return 0;
 }
