@@ -23,7 +23,7 @@
 #include <string.h>
 #include <ctype.h>
 
-enum format_t { hex, xbm  };
+enum format_t { xbm, twam  };
 
 struct bitmap_t {
 	unsigned int width;
@@ -169,7 +169,8 @@ void print_bitmap(bitmap_t* bitmap) {
 	}
 }
 
-int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap) {
+// write as standard xbm
+int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap, const char* name) {
 	int ret = 0;
 	FILE *fd;
 
@@ -180,12 +181,12 @@ int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap) {
 		goto write_bitmap_xbm_ret;
 	}
 
-	fprintf(fd,"#define %s_width %u\n", filename, bitmap->width);
-	fprintf(fd,"#define %s_height %u\n", filename, bitmap->height);
-	fprintf(fd,"static char %s_bits[] = {\n", filename);
+	fprintf(fd, "#define %s_width %u\n", name, bitmap->width);
+	fprintf(fd, "#define %s_height %u\n", name, bitmap->height);
+	fprintf(fd, "static char %s_bits[] = {\n", name);
 
 	for (unsigned int line = 0; line <= (bitmap->height*bitmap->rowwidth)/12; ++line) {
-		fprintf(fd,"  ");
+		fprintf(fd, "  ");
 
 		unsigned int max_pos = (line < (bitmap->height*bitmap->rowwidth)/12) ? 12 : (bitmap->height*bitmap->rowwidth) % 12;
 
@@ -203,10 +204,10 @@ int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap) {
 		}
 
 		if (line == (bitmap->height*bitmap->rowwidth)/12) {
-			fprintf(fd,"};");
+			fprintf(fd, "};");
 		}
 
-		fprintf(fd,"\n");
+		fprintf(fd, "\n");
 	}
 
 write_bitmap_xbm_fclose:
@@ -216,8 +217,60 @@ write_bitmap_xbm_ret:
 	return ret;
 }
 
+// write twam's own format
+int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* name) {
+	int ret = 0;
+	FILE *fd;
+
+	// open file
+	if ((fd = fopen(filename, "w")) == NULL) {
+		fprintf(stderr, "Error while opening file '%s'.\n", filename);
+		ret = -1;
+		goto write_bitmap_twam_ret;
+	}
+
+	fprintf(fd, "bitmap_t PROGMEM %s = {\n", name);
+	fprintf(fd, "  %u,\n", bitmap->width);
+	fprintf(fd, "  %u,\n", bitmap->height);
+	fprintf(fd, "  {");
+
+	for (unsigned int line = 0; line <= (bitmap->height*bitmap->rowwidth)/12; ++line) {
+		if (line != 0) {
+			fprintf(fd, "  ");
+		}
+
+		unsigned int max_pos = (line < (bitmap->height*bitmap->rowwidth)/12) ? 12 : (bitmap->height*bitmap->rowwidth) % 12;
+
+		for (unsigned int pos = 0; pos < max_pos; ++pos) {
+			unsigned char data = 0;
+
+			// change LSB<->MSB
+			for (unsigned int bit = 0; bit < 8; ++bit) {
+				if (bitmap->data[line*12+pos] & (1 << bit)) {
+					data |= (1 << (7-bit));
+				}
+			}
+	
+			fprintf(fd, "0x%02X, ", data);
+		}
+
+		if (line == (bitmap->height*bitmap->rowwidth)/12) {
+			fprintf(fd, "}");
+		}
+
+		fprintf(fd, "\n");
+	}
+	fprintf(fd, "  };\n");
+
+write_bitmap_twam_fclose:
+	fclose(fd);
+
+write_bitmap_twam_ret:
+	return ret;
+}
+
 int main(int argc, char* argv[]) {
-	format_t format = xbm;
+	format_t format = twam;
 	bitmap_t bitmap;
 
 	if (argc != 4) {
@@ -237,7 +290,10 @@ int main(int argc, char* argv[]) {
 
 	switch (format) {
 		case xbm:
-			write_bitmap_as_xbm(argv[2], &bitmap);
+			write_bitmap_as_xbm(argv[2], &bitmap, argv[3]);
+			break;
+		case twam:
+			write_bitmap_as_twam(argv[2], &bitmap, argv[3]);
 			break;
 	}
 
