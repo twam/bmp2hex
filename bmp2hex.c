@@ -148,6 +148,7 @@ read_bitmap_ret:
 }
 
 void print_binary(char b, unsigned char length) {
+	if (length == 0) length = 8;
 	int i;
 	for (i=7; i>=8-length; i--) {
 		if (b & (1<<i)) {
