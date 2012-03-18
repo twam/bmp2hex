@@ -67,10 +67,6 @@ int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
 	// offset where image data start
 	offset = (header[11] << 8) | header[10];
 
-
-
-	printf("%x %x %x %x", header[18], header[19], header[20], header[21]);
-
 	// read width from header, should be positiv
 	bitmap->width = *(int32_t*)(header+18);
 
