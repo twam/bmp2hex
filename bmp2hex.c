@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2011 by Tobias Müller                                   *
+ *   Copyright (C) 2012 by Tobias Müller                                   *
  *   Tobias_Mueller@twam.info                                              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -22,15 +22,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <inttypes.h>
 
-enum format_t { xbm, twam  };
+enum format_t { xbm, twam };
 
 struct bitmap_t {
-	unsigned int width;
-	unsigned int height;
+	int32_t width;
+	int32_t height;
 	unsigned int rowwidth;
-	unsigned char depth;
-	unsigned char *data;	
+	uint16_t depth;
+	unsigned char *data;
 };
 
 int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
@@ -62,30 +63,34 @@ int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
 		ret = -3;
 		goto read_bitmap_fclose;
 	}
-	
+
 	// offset where image data start
 	offset = (header[11] << 8) | header[10];
 
+
+
+	printf("%x %x %x %x", header[18], header[19], header[20], header[21]);
+
 	// read width from header, should be positiv
-	bitmap->width = abs((header[21]<<8) | (header[20]<<16) | (header[19]<<8) | header[18]);
+	bitmap->width = *(int32_t*)(header+18);
 
 	// read height from header
-	bitmap->height = abs((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]);
+	bitmap->height = *(int32_t*)(header+22);
 
 	// Is this a bottum up picture?
-	bottomup = ((header[25]<<24) | (header[24]<<16) | (header[23]<<8) | header[22]) >= 0;
+	bottomup = bitmap->height >= 0;
 
 	// color depth of image, should be 1 for monochromes
-	bitmap->depth = (header[28]);
+	bitmap->depth = *(uint16_t*)(header+28);
 
 	// width of a byte row
 	if (bitmap->width % 8) {
-		bitmap->rowwidth = (bitmap->width/8)+1;
+		bitmap->rowwidth = ((bitmap->width/8)+1) * bitmap->depth;
 	} else {
 		bitmap->rowwidth = (bitmap->width/8) * bitmap->depth;
 	}
 
-	// 4-byte alignment width of a byte row, align >= bitmap->rowwidth 
+	// 4-byte alignment width of a byte row, align >= bitmap->rowwidth
 	if (bitmap->rowwidth % 4) {
 		align = ((bitmap->rowwidth / 4)+1)*4;
 	} else {
@@ -144,7 +149,7 @@ read_bitmap_fclose:
 	fclose(fd);
 
 read_bitmap_ret:
-	return ret;	
+	return ret;
 }
 
 void print_binary(char b, unsigned char length) {
@@ -165,7 +170,7 @@ void print_bitmap(bitmap_t* bitmap) {
 		for (unsigned int col = 0; col<bitmap->rowwidth; ++col) {
 			print_binary(bitmap->data[row*bitmap->rowwidth+col], col == bitmap->rowwidth -1 ? bitmap->width % 8 : 8);
 		}
-		printf("\n");	
+		printf("\n");
 	}
 }
 
@@ -186,7 +191,7 @@ int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap, const char* name
 	fprintf(fd, "static char %s_bits[] = {\n", name);
 
 	for (unsigned int line = 0; line <= (bitmap->height*bitmap->rowwidth)/12; ++line) {
-		fprintf(fd, "  ");
+		fprintf(fd, "\t");
 
 		unsigned int max_pos = (line < (bitmap->height*bitmap->rowwidth)/12) ? 12 : (bitmap->height*bitmap->rowwidth) % 12;
 
@@ -199,7 +204,7 @@ int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap, const char* name
 					data |= (1 << (7-bit));
 				}
 			}
-	
+
 			fprintf(fd, "0x%02X, ", data);
 		}
 
@@ -229,15 +234,13 @@ int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* nam
 		goto write_bitmap_twam_ret;
 	}
 
-	fprintf(fd, "bitmap_t PROGMEM %s = {\n", name);
-	fprintf(fd, "  %u,\n", bitmap->width);
-	fprintf(fd, "  %u,\n", bitmap->height);
-	fprintf(fd, "  {");
+	fprintf(fd, "bitmap_t PROGMEM %s = { ", name);
+	fprintf(fd, "%u, ", bitmap->width);
+	fprintf(fd, "%u, ", bitmap->height);
+	fprintf(fd, "{\n");
 
 	for (unsigned int line = 0; line <= (bitmap->height*bitmap->rowwidth)/12; ++line) {
-		if (line != 0) {
-			fprintf(fd, "  ");
-		}
+		fprintf(fd, "\t");
 
 		unsigned int max_pos = (line < (bitmap->height*bitmap->rowwidth)/12) ? 12 : (bitmap->height*bitmap->rowwidth) % 12;
 
@@ -250,7 +253,7 @@ int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* nam
 					data |= (1 << (7-bit));
 				}
 			}
-	
+
 			fprintf(fd, "0x%02X, ", data);
 		}
 
@@ -260,7 +263,7 @@ int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* nam
 
 		fprintf(fd, "\n");
 	}
-	fprintf(fd, "  };\n");
+	fprintf(fd, "\t};\n");
 
 write_bitmap_twam_fclose:
 	fclose(fd);
@@ -281,7 +284,7 @@ int main(int argc, char* argv[]) {
 
 	// read bitmap
 	if (read_bitmap_from_file(argv[1], &bitmap)<0) {
-		fprintf(stderr, "Error while opening file '%s'!\n", argv[1]); 
+		fprintf(stderr, "Error while opening file '%s'!\n", argv[1]);
 		exit(EXIT_FAILURE);
 	}
 
