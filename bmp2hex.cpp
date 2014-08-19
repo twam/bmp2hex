@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Müller                                   *
+ *   Copyright (C) 2014 by Tobias Müller                                   *
  *   Tobias_Mueller@twam.info                                              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -51,7 +51,7 @@ int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
 	}
 
 	// read header
-	if (fgets(header, 54, fd) == NULL) {
+	if (fread(header, sizeof(char), 54, fd) != 54) {
 		fprintf(stderr, "File '%s' is not a valid Windows Bitmap! (Header too short)\n", filename);
 		ret = -2;
 		goto read_bitmap_fclose;
@@ -119,12 +119,6 @@ int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
 
 	for (unsigned int row=0; row<bitmap->height; ++row) {
 		fseek(fd, offset+row*align, SEEK_SET);
-
-/**		if (fgets(buffer, align+1, fd) == NULL) {
-			printf("Input file ended before all pixels could be read!\n");
-			return 7;
-		}
-**/
 
 		// get char by char
 		for (unsigned int col =0; col <= align; ++col) {
