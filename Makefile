@@ -6,12 +6,12 @@ default: $(TARGET)
 
 all: default
 
-CFLAGS += -Wall -Werror -D_GNU_SOURCE
+CFLAGS += -Wall -Werror -std=c99
 
 OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
 HEADERS = $(wildcard *.h)
 
-%.o: %.c $(HEADERS)
+%.o: %.c $(HEADERS) Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
 
 .PRECIOUS: $(TARGET) $(OBJECTS)
