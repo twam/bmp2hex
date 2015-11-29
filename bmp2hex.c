@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Müller                                   *
+ *   Copyright (C) 2015 by Tobias Müller                                   *
  *   Tobias_Mueller@twam.info                                              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
@@ -34,7 +34,7 @@ struct bitmap_t {
 	unsigned char *data;
 };
 
-int read_bitmap_from_file(const char* filename, bitmap_t* bitmap) {
+int read_bitmap_from_file(const char* filename, struct bitmap_t* bitmap) {
 	int ret = 0;
 	FILE *fd;
 	char* buffer;
@@ -154,7 +154,7 @@ void print_binary(char b, unsigned char length) {
 	}
 }
 
-void print_bitmap(bitmap_t* bitmap) {
+void print_bitmap(struct bitmap_t* bitmap) {
 	for (unsigned row=0; row<bitmap->height; ++row) {
 		printf("%3i ",row);
 		for (unsigned int col = 0; col<bitmap->rowwidth; ++col) {
@@ -165,7 +165,7 @@ void print_bitmap(bitmap_t* bitmap) {
 }
 
 // write as standard xbm
-int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap, const char* name) {
+int write_bitmap_as_xbm(const char* filename, struct bitmap_t* bitmap, const char* name) {
 	int ret = 0;
 	FILE *fd;
 
@@ -205,7 +205,6 @@ int write_bitmap_as_xbm(const char* filename, bitmap_t* bitmap, const char* name
 		fprintf(fd, "\n");
 	}
 
-write_bitmap_xbm_fclose:
 	fclose(fd);
 
 write_bitmap_xbm_ret:
@@ -213,7 +212,7 @@ write_bitmap_xbm_ret:
 }
 
 // write twam's own format
-int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* name) {
+int write_bitmap_as_twam(const char* filename, struct bitmap_t* bitmap, const char* name) {
 	int ret = 0;
 	FILE *fd;
 
@@ -255,7 +254,6 @@ int write_bitmap_as_twam(const char* filename, bitmap_t* bitmap, const char* nam
 	}
 	fprintf(fd, "\t};\n");
 
-write_bitmap_twam_fclose:
 	fclose(fd);
 
 write_bitmap_twam_ret:
@@ -263,8 +261,8 @@ write_bitmap_twam_ret:
 }
 
 int main(int argc, char* argv[]) {
-	format_t format = twam;
-	bitmap_t bitmap;
+	enum format_t format = twam;
+	struct bitmap_t bitmap;
 
 	if (argc != 4) {
 		printf("You need to call: %s <inputfile> <outputfile> <imagename> \n",argv[0]);
